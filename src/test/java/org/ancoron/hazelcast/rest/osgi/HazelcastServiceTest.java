@@ -16,21 +16,21 @@
 package org.ancoron.hazelcast.rest.osgi;
 
 
-import java.io.IOException;
 import java.io.InputStream;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
 
-import javax.servlet.ReadListener;
-import javax.servlet.ServletInputStream;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-
+import org.ancoron.hazelcast.rest.servlet.HazelcastMapServlet;
+import org.apache.commons.codec.binary.Hex;
+import org.apache.commons.codec.digest.DigestUtils;
+import org.hamcrest.CoreMatchers;
+import org.junit.Assert;
 import org.junit.Test;
 
 import com.hazelcast.config.Config;
 import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.HazelcastInstance;
 
-import static org.mockito.Mockito.*;
 
 /**
  *
@@ -43,7 +43,7 @@ public class HazelcastServiceTest {
     }
 
     @Test
-    public void writeSimple() throws Exception {
+    public void lifecycleSimple() throws Exception {
         Config cfg = new Config("HazelcastServiceTest");
 
         // disable multicast...
@@ -51,37 +51,34 @@ public class HazelcastServiceTest {
 
         HazelcastInstance hz = Hazelcast.newHazelcastInstance(cfg);
 
-        HazelcastService service = new HazelcastService();
+        HazelcastMapServlet service = new HazelcastMapServlet();
         service.setHazelcast(hz);
 
-        HttpServletRequest request = mock(HttpServletRequest.class);
-        HttpServletResponse response = mock(HttpServletResponse.class);
-        when(request.getPathInfo()).thenReturn("/buckets/A/1");
+        // Step #1: create a bucket
+        service.createBucket("A", 60, 0, 128);
 
-        final InputStream testData = stream("test.json");
-        when(request.getContentLength()).thenReturn(171);
-        when(request.getContentType()).thenReturn("application/json");
-        when(request.getInputStream()).thenReturn(new ServletInputStream() {
-            @Override
-            public boolean isFinished() {
-                return true;
-            }
+        // Step #2: insert some data for a key
+        MessageDigest md5 = DigestUtils.getMd5Digest();
+        MessageDigest sha1 = DigestUtils.getSha1Digest();
+        try (InputStream testData = new DigestInputStream(
+                new DigestInputStream(stream("test.json"), sha1), md5))
+        {
+            service.setValue("A", "1", "application/json", 171, testData);
+        }
 
-            @Override
-            public boolean isReady() {
-                return true;
-            }
+        // Step #3: fetch some data for a key
+        byte[] value = service.getValue("A", "1");
+        byte[] data = new byte[value.length - 1];
+        System.arraycopy(value, 1, data, 0, data.length);
 
-            @Override
-            public void setReadListener(ReadListener readListener) {
-            }
+        Assert.assertThat(DigestUtils.md5Hex(data),
+                CoreMatchers.is(Hex.encodeHexString(md5.digest()))
+        );
+        Assert.assertThat(DigestUtils.sha1Hex(data),
+                CoreMatchers.is(Hex.encodeHexString(sha1.digest()))
+        );
 
-            @Override
-            public int read() throws IOException {
-                return testData.read();
-            }
-        });
-
-        service.doPost(request, response);
+        // Step #4: delete the bucket
+        service.deleteBucket("A");
     }
 }
