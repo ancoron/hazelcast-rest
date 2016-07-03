@@ -380,10 +380,12 @@ public class HazelcastMapServlet extends HttpServlet
     public void sendError(HttpServletResponse resp, int status, String message,
             Throwable error) throws IOException
     {
-        if (error != null) {
-            LOG.log(Level.WARNING, message, error);
-        } else {
-            LOG.log(Level.WARNING, message);
+        if (LOG.isLoggable(Level.FINE)) {
+            if (error != null) {
+                LOG.log(Level.WARNING, message, error);
+            } else {
+                LOG.log(Level.WARNING, message);
+            }
         }
 
         resp.setStatus(status);
